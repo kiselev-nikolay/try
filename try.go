@@ -14,41 +14,49 @@ type TryContext interface {
 
 type errContext struct {
 	parent context.Context
+	closed bool
 	done   chan struct{}
 	err    error
 }
 
 func Try(parent context.Context, action func(TryContext)) error {
-	ctx := &errContext{parent: parent, done: make(chan struct{})}
-	actionComplete := make(chan bool)
+	ctx := &errContext{
+		parent: parent,
+		closed: false,
+		done:   make(chan struct{}),
+	}
 	go func() {
-		select {
-		case <-ctx.Done():
-			actionComplete <- false
-			runtime.Goexit()
-			return
-		default:
-			action(ctx)
-			actionComplete <- true
-			return
+		action(ctx)
+		if !ctx.closed {
+			close(ctx.done)
+			ctx.closed = true
 		}
 	}()
 	select {
 	case <-parent.Done():
-		close(ctx.done)
-		return fmt.Errorf("parent context error: %v", parent.Err())
-	case <-actionComplete:
+		if !ctx.closed {
+			close(ctx.done)
+			ctx.closed = true
+		}
+		ctx.err = fmt.Errorf("parent context error: %v", parent.Err())
+		return ctx.err
+	case <-ctx.done:
 		return ctx.err
 	}
 }
 
 func (ctx *errContext) Catch(err error) {
 	if ctx.err != nil {
+		runtime.Goexit()
 		return
 	}
 	if err != nil {
 		ctx.err = err
-		close(ctx.done)
+		if !ctx.closed {
+			close(ctx.done)
+			ctx.closed = true
+		}
+		runtime.Goexit()
 	}
 }
 

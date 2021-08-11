@@ -29,18 +29,18 @@ func TestTry(t *testing.T) {
 		}
 	})
 	t.Run("cancel parent", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		go func() {
-			<-time.After(1 * time.Second)
-			cancel()
-		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
 		happen := false
 		err := try.Try(ctx, func(tc try.TryContext) {
-			<-time.After(2 * time.Second)
-			tc.Catch(nil)
-			happen = true
+			<-time.After(200 * time.Millisecond)
+			var err error
+			v, err := true, nil
+			tc.Catch(err)
+			happen = v
 		})
-		if err.Error() != "parent context error: context canceled" {
+		<-time.After(400 * time.Millisecond)
+		if err.Error() != "parent context error: context deadline exceeded" {
 			t.Error(err)
 		}
 		if happen {
